@@ -1,7 +1,7 @@
 const http = require('http');
 const WebSocket = require('ws');
 
-// Crée un serveur HTTP minimal
+// Create minimal HTTP server
 const server = http.createServer((req, res) => {
     res.writeHead(200, {'Content-Type': 'text/plain'});
     res.end('WebSocket server running\n');
@@ -9,31 +9,47 @@ const server = http.createServer((req, res) => {
 
 const port = process.env.PORT || 3000;
 
-// Crée un serveur WebSocket attaché au serveur HTTP
+// Create WebSocket server attached to HTTP server
 const wss = new WebSocket.Server({ server });
 
 let master = null;
 let slaves = new Set();
 
+// Heartbeat function
+function heartbeat() {
+    this.isAlive = true;
+}
+
 wss.on('connection', (ws) => {
+    ws.isAlive = true;
+    ws.on('pong', heartbeat);
+
+    console.log('New client connected');
+
     ws.on('message', (message) => {
         try {
             const data = JSON.parse(message);
 
-            if(data.role === 'master') {
+            // Register master
+            if (data.role === 'master') {
                 master = ws;
-                ws.send(JSON.stringify({status: 'connected as master'}));
-                return;
-            }
-            if(data.role === 'slave') {
-                slaves.add(ws);
-                ws.send(JSON.stringify({status: 'connected as slave'}));
+                ws.send(JSON.stringify({ status: 'connected as master' }));
+                console.log('Master connected');
                 return;
             }
 
-            if(master && ws === master) {
+            // Register slave
+            if (data.role === 'slave') {
+                slaves.add(ws);
+                ws.send(JSON.stringify({ status: 'connected as slave' }));
+                console.log(`Slave connected. Total slaves: ${slaves.size}`);
+                return;
+            }
+
+            // Forward messages from master to all slaves
+            if (master && ws === master) {
                 slaves.forEach(slave => {
-                    if(slave.readyState === WebSocket.OPEN) {
+                    if (slave.readyState === WebSocket.OPEN) {
                         try {
                             slave.send(message);
                         } catch(err) {
@@ -42,16 +58,38 @@ wss.on('connection', (ws) => {
                     }
                 });
             }
-        } catch(e) {
+
+        } catch (e) {
             console.error('Invalid message:', message);
         }
     });
 
     ws.on('close', () => {
-        if(ws === master) master = null;
-        slaves.delete(ws);
+        if (ws === master) {
+            master = null;
+            console.log('Master disconnected');
+            // Notify all slaves that master disconnected
+            slaves.forEach(slave => {
+                if (slave.readyState === WebSocket.OPEN) {
+                    slave.send(JSON.stringify({ status: 'master disconnected' }));
+                }
+            });
+        }
+        if (slaves.has(ws)) {
+            slaves.delete(ws);
+            console.log(`Slave disconnected. Remaining slaves: ${slaves.size}`);
+        }
     });
 });
+
+// Ping clients to keep connections alive
+const interval = setInterval(() => {
+    wss.clients.forEach(ws => {
+        if (ws.isAlive === false) return ws.terminate();
+        ws.isAlive = false;
+        ws.ping(() => {});
+    });
+}, 30000);
 
 server.listen(port, () => {
     console.log(`Server running on port ${port}`);
