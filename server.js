@@ -1,9 +1,16 @@
+const http = require('http');
 const WebSocket = require('ws');
 
-const port = process.env.PORT || 3000;
-const wss = new WebSocket.Server({ port });
+// Crée un serveur HTTP minimal
+const server = http.createServer((req, res) => {
+    res.writeHead(200, {'Content-Type': 'text/plain'});
+    res.end('WebSocket server running\n');
+});
 
-console.log(`WebSocket server running on port ${port}`);
+const port = process.env.PORT || 3000;
+
+// Crée un serveur WebSocket attaché au serveur HTTP
+const wss = new WebSocket.Server({ server });
 
 let master = null;
 let slaves = new Set();
@@ -27,7 +34,11 @@ wss.on('connection', (ws) => {
             if(master && ws === master) {
                 slaves.forEach(slave => {
                     if(slave.readyState === WebSocket.OPEN) {
-                        slave.send(message);
+                        try {
+                            slave.send(message);
+                        } catch(err) {
+                            console.error('Failed to send to slave:', err);
+                        }
                     }
                 });
             }
@@ -40,4 +51,8 @@ wss.on('connection', (ws) => {
         if(ws === master) master = null;
         slaves.delete(ws);
     });
+});
+
+server.listen(port, () => {
+    console.log(`Server running on port ${port}`);
 });
