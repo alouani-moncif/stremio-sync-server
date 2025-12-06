@@ -1,6 +1,15 @@
+const http = require('http');
 const WebSocket = require('ws');
 
-const wss = new WebSocket.Server({ port: 3000 });
+const port = process.env.PORT || 3000;
+
+// Minimal HTTP server required for some Railway setups
+const server = http.createServer((req, res) => {
+    res.writeHead(200, {'Content-Type': 'text/plain'});
+    res.end('WebSocket server running\n');
+});
+
+const wss = new WebSocket.Server({ server });
 
 let master = null;
 let slaves = new Set();
@@ -31,7 +40,7 @@ wss.on('connection', (ws) => {
             ws.send(JSON.stringify({ status: "connected as master" }));
             console.log("Master connected");
 
-            // send pending commands
+            // send pending commands to all slaves
             pendingCommands.forEach(cmd => {
                 slaves.forEach(slave => {
                     if (slave.readyState === WebSocket.OPEN) {
@@ -39,7 +48,6 @@ wss.on('connection', (ws) => {
                     }
                 });
             });
-
             return;
         }
 
@@ -53,7 +61,6 @@ wss.on('connection', (ws) => {
             pendingCommands.forEach(cmd => {
                 if (ws.readyState === WebSocket.OPEN) ws.send(cmd);
             });
-
             return;
         }
 
@@ -64,7 +71,6 @@ wss.on('connection', (ws) => {
                     slave.send(message);
                 }
             });
-
             pendingCommands.push(message);
         }
 
@@ -82,4 +88,7 @@ wss.on('connection', (ws) => {
     });
 });
 
-console.log("WebSocket server running on ws://localhost:3000");
+// Bind to all interfaces for Railway
+server.listen(port, '0.0.0.0', () => {
+    console.log(`WebSocket server running on ws://0.0.0.0:${port}`);
+});
