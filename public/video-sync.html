@@ -1,86 +1,85 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta charset="UTF-8">
-<title>Video Sync</title>
-<style>
-body { font-family: Arial; padding: 20px; }
-#roleDisplay { font-size: 22px; font-weight: bold; margin-bottom: 15px; }
-#log { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; height: 250px; overflow-y: auto; }
-button { margin: 5px; padding: 10px; }
-video { width: 100%; max-width: 720px; margin-bottom: 10px; }
-</style>
+  <meta charset="UTF-8" />
+  <title>Video Sync</title>
+  <style>
+    body { font-family: Arial; padding: 20px; }
+    #roleDisplay { font-size: 22px; font-weight: bold; margin-bottom: 15px; }
+    #log { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; height: 250px; overflow-y: auto; }
+    video { width: 100%; max-width: 720px; margin-bottom: 10px; }
+  </style>
 </head>
 <body>
+  <div id="roleDisplay"></div>
+  <video id="video" controls>
+    <source src="sample.mp4" type="video/mp4">
+    Your browser does not support HTML5 video.
+  </video>
 
-<div id="roleDisplay"></div>
-
-<video id="video" controls>
-  <source src="sample.mp4" type="video/mp4">
-  Your browser does not support HTML5 video.
-</video>
-
-<div id="controls" style="display:none;">
-  <button onclick="sendCmd('play')">Play</button>
-  <button onclick="sendCmd('pause')">Pause</button>
-  <button onclick="sendCmd('seek',30)">Seek +30s</button>
-  <button onclick="sendCmd('subtitles_next')">Next Subtitles</button>
-  <button onclick="sendCmd('audio_next')">Next Audio</button>
-</div>
-
-<h3>Log</h3>
-<div id="log"></div>
+  <h3>Log</h3>
+  <div id="log"></div>
 
 <script>
-const SERVER_URL = location.origin.replace(/^http/, 'ws'); // matches Railway
-const url = new URL(window.location.href);
-const role = url.searchParams.get('role') === 'master' ? 'master' : 'slave';
-document.getElementById('roleDisplay').innerText = role === 'master' ? 'ROLE: MASTER' : 'ROLE: SLAVE';
-if(role==='master') document.getElementById('controls').style.display='block';
+const SERVER_URL = "wss://" + window.location.host;
 
-function log(txt){
-  if(typeof txt !== 'string') txt = JSON.stringify(txt);
-  const box = document.getElementById('log');
+const url = new URL(window.location.href);
+const role = url.searchParams.get("role") === "master" ? "master" : "slave";
+
+document.getElementById("roleDisplay").innerText =
+  role === "master" ? "ROLE: MASTER" : "ROLE: SLAVE";
+
+function log(txt) {
+  const box = document.getElementById("log");
   box.innerText += txt + "\n";
   box.scrollTop = box.scrollHeight;
 }
 
-// --- WebSocket ---
+// WebSocket setup
 const ws = new WebSocket(SERVER_URL);
-ws.binaryType = 'arraybuffer'; // force text conversion
+ws.binaryType = "blob";
 
-ws.onopen = ()=> {
+ws.onopen = () => {
   log("CONNECTED as " + role);
-  ws.send(JSON.stringify({role}));
+  ws.send(JSON.stringify({ role }));
 };
 
-ws.onmessage = async (event)=>{
+ws.onmessage = async (event) => {
   let raw = event.data;
-  if(raw instanceof ArrayBuffer) raw = new TextDecoder().decode(raw);
+
+  if (raw instanceof Blob) raw = await raw.text();
   log("RAW MESSAGE: " + raw);
 
   let msg;
-  try { msg = JSON.parse(raw); } catch { log("Invalid JSON: "+raw); return; }
-  if(role==='master') return;
+  try { msg = JSON.parse(raw); }
+  catch { log("Invalid JSON: " + raw); return; }
 
-  // slave executes
-  const video = document.getElementById('video');
-  switch(msg.type){
-    case 'play': video.play(); break;
-    case 'pause': video.pause(); break;
-    case 'seek': if(msg.value) video.currentTime += msg.value; break;
-    case 'subtitles_next': break;
-    case 'audio_next': break;
+  if (role === "master") return;
+
+  const video = document.getElementById("video");
+  log("SLAVE received: " + JSON.stringify(msg));
+
+  switch (msg.type) {
+    case "play": video.play(); break;
+    case "pause": video.pause(); break;
+    case "seek": if(msg.value != null) video.currentTime = msg.value; break;
   }
-  log("SLAVE received: "+JSON.stringify(msg));
 };
 
-// --- MASTER sends commands ---
-function sendCmd(type,value=null){
-  if(role!=='master') return;
-  const msg = { type, value, ts: Date.now() };
-  ws.send(JSON.stringify(msg));
-  log("MASTER sent: "+JSON.stringify(msg));
+// MASTER: listen to native video events
+if (role === "master") {
+  const video = document.getElementById("video");
+
+  video.addEventListener("play", () => sendCmd("play"));
+  video.addEventListener("pause", () => sendCmd("pause"));
+  video.addEventListener("seeked", () => sendCmd("seek", video.currentTime));
+}
+
+function sendCmd(type, value = null) {
+  if (role !== "master") return;
+  const message = { type, value, ts: Date.now() };
+  ws.send(JSON.stringify(message));
+  log("MASTER sent: " + JSON.stringify(message));
 }
 </script>
 </body>
