@@ -7,69 +7,40 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
-# --- Railway HTML URL ---
 VIDEO_HTML_URL = "https://stremio-sync-server-production.up.railway.app/video-sync.html"
-
 MASTER_URL = VIDEO_HTML_URL + "?role=master"
 SLAVE_URL  = VIDEO_HTML_URL + "?role=slave"
 
-# --- Chrome options ---
 chrome_options = Options()
 chrome_options.add_argument("--disable-gpu")
 chrome_options.add_argument("--window-size=1200,900")
-# chrome_options.add_argument("--headless=new")  # optional
+# chrome_options.add_argument("--headless=new")
 
-# --- Start SLAVE first ---
-slave_driver = webdriver.Chrome(
-    service=Service(ChromeDriverManager().install()),
-    options=chrome_options
-)
+# start SLAVE first
+slave_driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 slave_driver.get(SLAVE_URL)
+time.sleep(3)
 
-time.sleep(3)  # wait for page + WS connection
-
-# --- Start MASTER ---
-master_driver = webdriver.Chrome(
-    service=Service(ChromeDriverManager().install()),
-    options=chrome_options
-)
+# start MASTER
+master_driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 master_driver.get(MASTER_URL)
+WebDriverWait(master_driver,20).until(EC.visibility_of_element_located((By.ID,"controls")))
+time.sleep(2)
 
-# Wait until MASTER controls appear (longer timeout for cloud)
-WebDriverWait(master_driver, 20).until(
-    EC.visibility_of_element_located((By.ID, "controls"))
-)
-
-time.sleep(2)  # ensure WS connection established
-
-# --- Helper to click MASTER buttons ---
-def click_master_button(label_text):
-    xpath = f"//button[text()='{label_text}']"
-    btn = WebDriverWait(master_driver, 10).until(
-        EC.element_to_be_clickable((By.XPATH, xpath))
-    )
+def click_master_button(label):
+    btn = WebDriverWait(master_driver,10).until(EC.element_to_be_clickable((By.XPATH,f"//button[text()='{label}']")))
     btn.click()
-    print(f"[MASTER] Clicked: {label_text}")
+    print(f"[MASTER] Clicked: {label}")
 
-# --- Test commands ---
-command_buttons = [
-    "Play",
-    "Pause",
-    "Seek +30s",
-    "Next Subtitles",
-    "Next Audio"
-]
-
+command_buttons = ["Play","Pause","Seek +30s","Next Subtitles","Next Audio"]
 for label in command_buttons:
     click_master_button(label)
-    time.sleep(2)  # allow WebSocket propagation over internet
+    time.sleep(2)
 
-# --- Retrieve SLAVE log ---
-log_text = slave_driver.find_element(By.ID, "log").text
+log_text = slave_driver.find_element(By.ID,"log").text
 print("\n--- SLAVE LOG ---\n")
 print(log_text)
 
-# --- Verify received commands ---
 print("\n--- RESULTS ---")
 for label in command_buttons:
     key = label.lower().split()[0]
@@ -78,6 +49,5 @@ for label in command_buttons:
     else:
         print(f"[FAIL] {label} NOT received")
 
-# --- Close browsers ---
 master_driver.quit()
 slave_driver.quit()
