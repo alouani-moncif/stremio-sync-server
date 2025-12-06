@@ -7,6 +7,7 @@ const server = http.createServer((req, res) => {
     res.end('WebSocket server running\n');
 });
 
+// Use Render port or fallback to 3000
 const port = process.env.PORT || 3000;
 
 // Create WebSocket server attached to HTTP server
@@ -15,7 +16,7 @@ const wss = new WebSocket.Server({ server });
 let master = null;
 let slaves = new Set();
 
-// Heartbeat function
+// Heartbeat to keep connections alive
 function heartbeat() {
     this.isAlive = true;
 }
@@ -82,8 +83,8 @@ wss.on('connection', (ws) => {
     });
 });
 
-// Ping clients to keep connections alive
-const interval = setInterval(() => {
+// Ping clients every 30s to prevent idle disconnect
+setInterval(() => {
     wss.clients.forEach(ws => {
         if (ws.isAlive === false) return ws.terminate();
         ws.isAlive = false;

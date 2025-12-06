@@ -1,10 +1,13 @@
 {
   "name": "stremio-sync-server",
   "version": "1.0.0",
+  "description": "Master/Slave WebSocket server for synchronized playback",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
+  "author": "alouani-moncif",
+  "license": "MIT",
   "dependencies": {
     "ws": "^8.16.0"
   }
