@@ -36,11 +36,11 @@ document.getElementById("roleDisplay").innerText =
   role === "master" ? "ROLE: MASTER" : "ROLE: SLAVE";
 
 const video = document.getElementById("video");
-const logBox = document.getElementById("log");
 
 function log(txt) {
-  logBox.innerText += txt + "\n";
-  logBox.scrollTop = logBox.scrollHeight;
+  const box = document.getElementById("log");
+  box.innerText += txt + "\n";
+  box.scrollTop = box.scrollHeight;
 }
 
 // WebSocket
@@ -53,42 +53,41 @@ ws.onopen = () => {
 };
 
 // ---------------------
-// MASTER: video events
+// MASTER: send events
 // ---------------------
 if (role === "master") {
   document.getElementById("controls").style.display = "block";
 
   function sendCmd(type, value=null) {
-    const message = { type, value, ts: Date.now() };
-    ws.send(JSON.stringify(message));
-    log("MASTER sent: " + JSON.stringify(message));
+    const msg = { type, value, ts: Date.now() };
+    ws.send(JSON.stringify(msg));
+    log("MASTER sent: " + JSON.stringify(msg));
   }
 
-  // Only send commands if user initiates, not programmatically
-  video.dataset.remote = false;
+  let ignoreNext = false; // prevent loops
 
   video.addEventListener("play", () => {
-    if (!video.dataset.remote) sendCmd("play");
-    video.dataset.remote = false;
+    if (!ignoreNext) sendCmd("play");
+    ignoreNext = false;
   });
 
   video.addEventListener("pause", () => {
-    if (!video.dataset.remote) sendCmd("pause");
-    video.dataset.remote = false;
+    if (!ignoreNext) sendCmd("pause");
+    ignoreNext = false;
   });
 
-  video.addEventListener("seeking", () => {
-    if (!video.dataset.remote) sendCmd("seek", video.currentTime);
-    video.dataset.remote = false;
+  video.addEventListener("seeked", () => {
+    if (!ignoreNext) sendCmd("seek", video.currentTime);
+    ignoreNext = false;
   });
 }
 
 // ---------------------
-// SLAVE: apply commands
+// SLAVE: receive events
 // ---------------------
 if (role === "slave") {
   function applyCommand(type, value) {
-    video.dataset.remote = true;
+    video.ignoreNext = true; // prevent slave triggering events
     switch(type) {
       case "play":
         video.play().catch(e => log("Play blocked: " + e));
@@ -111,15 +110,9 @@ if (role === "slave") {
   ws.onmessage = async (event) => {
     let raw = event.data;
     if (raw instanceof Blob) raw = await raw.text();
-
-    log("RAW MESSAGE: " + raw);
-
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-
-    // Ignore status messages
     if (msg.status) return;
-
     if (msg.type) applyCommand(msg.type, msg.value);
     log("SLAVE received: " + JSON.stringify(msg));
   };
@@ -130,9 +123,9 @@ if (role === "slave") {
 // ---------------------
 function sendCmd(type) {
   if (role !== "master") return;
-  const message = { type, value:null, ts:Date.now() };
-  ws.send(JSON.stringify(message));
-  log("MASTER sent: " + JSON.stringify(message));
+  const msg = { type, value:null, ts: Date.now() };
+  ws.send(JSON.stringify(msg));
+  log("MASTER sent: " + JSON.stringify(msg));
 }
 </script>
 </body>
