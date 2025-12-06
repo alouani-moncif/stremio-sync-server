@@ -23,7 +23,6 @@
 
 <script>
 const SERVER_URL = "wss://stremio-sync-server-production.up.railway.app";
-
 const url = new URL(window.location.href);
 const role = url.searchParams.get("role") === "master" ? "master" : "slave";
 
@@ -37,10 +36,10 @@ function log(txt) {
 }
 
 // ================================
-// WEB SOCKET
+// WebSocket Setup
 // ================================
 const ws = new WebSocket(SERVER_URL);
-ws.binaryType = "blob"; // ensure text messages
+ws.binaryType = "blob";
 
 ws.onopen = () => {
   log("CONNECTED as " + role);
@@ -50,22 +49,22 @@ ws.onopen = () => {
 ws.onmessage = async (event) => {
   let raw = event.data;
 
-  // Convert Blob → string
-  if (raw instanceof Blob) raw = await raw.text();
+  if (raw instanceof Blob) {
+    raw = await raw.text();
+  }
 
   log("RAW MESSAGE: " + raw);
 
   let msg;
-  try { msg = JSON.parse(raw); } 
-  catch { log("Invalid JSON: " + raw); return; }
+  try { msg = JSON.parse(raw); } catch (e) {
+    log("Invalid JSON: " + raw);
+    return;
+  }
 
-  // Master does not react to commands
-  if (role === "master") return;
+  if (role === "master") return; // master does not react
 
-  // Slave executes commands
+  // Slave reacts
   const video = document.getElementById("video");
-  video.muted = true; // avoid autoplay restrictions
-
   log("SLAVE received: " + JSON.stringify(msg));
 
   switch(msg.type) {
@@ -76,36 +75,42 @@ ws.onmessage = async (event) => {
       video.pause();
       break;
     case "seek":
-      if (msg.value !== undefined) video.currentTime = msg.value;
+      if (msg.value !== undefined) {
+        // Update only if difference > 0.1s
+        if (Math.abs(video.currentTime - msg.value) > 0.1) {
+          setTimeout(() => { video.currentTime = msg.value; }, 50);
+        }
+      }
+      break;
+    case "subtitles_next":
+      log("→ NEXT subtitle (placeholder)");
+      break;
+    case "audio_next":
+      log("→ NEXT audio (placeholder)");
       break;
   }
 };
 
 // ================================
-// MASTER: send commands on video events
+// Master sends commands based on video events
 // ================================
 if (role === "master") {
   const video = document.getElementById("video");
 
-  video.addEventListener("play", () => {
-    sendCmd("play");
+  function sendCmd(type, value = null) {
+    const message = { type, value, ts: Date.now() };
+    ws.send(JSON.stringify(message));
+    log("MASTER sent: " + JSON.stringify(message));
+  }
+
+  video.addEventListener("play", () => sendCmd("play"));
+  video.addEventListener("pause", () => sendCmd("pause"));
+  video.addEventListener("seeking", () => sendCmd("seek", video.currentTime));
+
+  // Optional: keyboard shortcuts for testing
+  document.addEventListener("keydown", e => {
+    if (e.code === "Space") video.paused ? video.play() : video.pause();
   });
-
-  video.addEventListener("pause", () => {
-    sendCmd("pause");
-  });
-
-  video.addEventListener("seeked", () => {
-    sendCmd("seek", video.currentTime); // send absolute time
-  });
-}
-
-function sendCmd(type, value=null) {
-  if (role !== "master") return;
-
-  const message = { type, value, ts: Date.now() };
-  ws.send(JSON.stringify(message));
-  log("MASTER sent: " + JSON.stringify(message));
 }
 </script>
 </body>
