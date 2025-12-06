@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Video Sync</title>
   <style>
     body { font-family: Arial; padding: 20px; }
@@ -31,7 +31,10 @@
   <div id="log"></div>
 
 <script>
-const SERVER_URL = "wss://stremio-sync-server-production.up.railway.app";
+const video = document.getElementById("video");
+
+// Use same origin WS
+const SERVER_URL = window.location.origin.replace(/^http/, "ws");
 
 const url = new URL(window.location.href);
 const role = url.searchParams.get("role") === "master" ? "master" : "slave";
@@ -39,9 +42,7 @@ const role = url.searchParams.get("role") === "master" ? "master" : "slave";
 document.getElementById("roleDisplay").innerText =
   role === "master" ? "ROLE: MASTER" : "ROLE: SLAVE";
 
-if (role === "master") {
-  document.getElementById("controls").style.display = "block";
-}
+if(role === "master") document.getElementById("controls").style.display = "block";
 
 function log(txt) {
   const box = document.getElementById("log");
@@ -49,77 +50,50 @@ function log(txt) {
   box.scrollTop = box.scrollHeight;
 }
 
-// ================================
-// WEB SOCKET FIX – TEXT ONLY
-// ================================
+// --------------------
+// WebSocket
+// --------------------
 const ws = new WebSocket(SERVER_URL);
-ws.binaryType = "blob"; // STILL readable as text by event.data.text()
 
 ws.onopen = () => {
   log("CONNECTED as " + role);
-
-  // Force TEXT, not Blob
   ws.send(JSON.stringify({ role }));
 };
 
-ws.onmessage = async (event) => {
-  let raw = event.data;
-
-  // ---- FIX FOR BLOB MESSAGES ----
-  if (raw instanceof Blob) {
-    raw = await raw.text();       // <-- CONVERT BLOB → STRING
-  }
-
-  log("RAW MESSAGE: " + raw);
-
+ws.onmessage = (event) => {
   let msg;
-  try {
-    msg = JSON.parse(raw);
-  } catch (e) {
-    log("Invalid JSON: " + raw);
-    return;
-  }
+  try { msg = JSON.parse(event.data); } 
+  catch { log("Invalid JSON: " + event.data); return; }
 
-  // Master does not react to commands
-  if (role === "master") return;
+  if(role === "master") return;
 
-  // Slave executes commands
   log("SLAVE received: " + JSON.stringify(msg));
-  const video = document.getElementById("video");
 
-  switch (msg.type) {
+  switch(msg.type) {
     case "play": video.play(); break;
     case "pause": video.pause(); break;
-
-    case "seek":
-      if (msg.value) video.currentTime += msg.value;
-      break;
-
-    case "subtitles_next":
-      // Placeholder UI log
-      break;
-
-    case "audio_next":
-      // Placeholder UI log
-      break;
+    case "seek": if(msg.value) video.currentTime += msg.value; break;
+    case "subtitles_next": break;
+    case "audio_next": break;
   }
 };
 
-// ================================
-// MASTER SENDS COMMANDS
-// ================================
-function sendCmd(type, value = null) {
-  if (role !== "master") return;
+// --------------------
+// Master commands
+// --------------------
+function sendCmd(type, value=null){
+  if(role !== "master") return;
 
-  const message = {
-    type,
-    value,
-    ts: Date.now()
-  };
+  // Execute on MASTER itself
+  switch(type){
+    case "play": video.play(); break;
+    case "pause": video.pause(); break;
+    case "seek": if(value) video.currentTime += value; break;
+  }
 
-  const json = JSON.stringify(message);
-  ws.send(json);            // <-- ALWAYS TEXT
-  log("MASTER sent: " + json);
+  const message = { type, value, ts: Date.now() };
+  ws.send(JSON.stringify(message));
+  log("MASTER sent: " + JSON.stringify(message));
 }
 </script>
 </body>
