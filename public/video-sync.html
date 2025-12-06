@@ -24,82 +24,88 @@
 <script>
 const SERVER_URL = "wss://stremio-sync-server-production.up.railway.app";
 
-// Determine role from URL
 const url = new URL(window.location.href);
 const role = url.searchParams.get("role") === "master" ? "master" : "slave";
 
 document.getElementById("roleDisplay").innerText =
   role === "master" ? "ROLE: MASTER" : "ROLE: SLAVE";
 
-const video = document.getElementById("video");
+function log(txt) {
+  const box = document.getElementById("log");
+  box.innerText += txt + "\n";
+  box.scrollTop = box.scrollHeight;
+}
 
-// --- WebSocket setup ---
+// ================================
+// WEB SOCKET
+// ================================
 const ws = new WebSocket(SERVER_URL);
-ws.binaryType = "blob"; // still safe to convert to text
+ws.binaryType = "blob"; // ensure text messages
 
 ws.onopen = () => {
   log("CONNECTED as " + role);
   ws.send(JSON.stringify({ role }));
-
-  if(role === "master") {
-      setupMasterEvents();
-  }
 };
 
 ws.onmessage = async (event) => {
   let raw = event.data;
-  if(raw instanceof Blob) raw = await raw.text();
+
+  // Convert Blob → string
+  if (raw instanceof Blob) raw = await raw.text();
 
   log("RAW MESSAGE: " + raw);
 
   let msg;
-  try { msg = JSON.parse(raw); }
+  try { msg = JSON.parse(raw); } 
   catch { log("Invalid JSON: " + raw); return; }
 
-  if(role === "master") return;
+  // Master does not react to commands
+  if (role === "master") return;
 
-  // SLAVE reacts
-  // Wait for video metadata
-  if(video.readyState < 2){
-      await new Promise(resolve => {
-          video.onloadedmetadata = () => resolve();
-      });
-  }
-
-  switch(msg.type){
-      case "play": video.play().catch(e=>log("Play blocked:"+e)); break;
-      case "pause": video.pause(); break;
-      case "seek": 
-          if(msg.value != null) video.currentTime = msg.value; 
-          break;
-  }
+  // Slave executes commands
+  const video = document.getElementById("video");
+  video.muted = true; // avoid autoplay restrictions
 
   log("SLAVE received: " + JSON.stringify(msg));
+
+  switch(msg.type) {
+    case "play":
+      video.play().catch(e => log("Play blocked: " + e));
+      break;
+    case "pause":
+      video.pause();
+      break;
+    case "seek":
+      if (msg.value !== undefined) video.currentTime = msg.value;
+      break;
+  }
 };
 
-// --- Logging ---
-function log(txt){
-    const box = document.getElementById("log");
-    box.innerText += txt + "\n";
-    box.scrollTop = box.scrollHeight;
+// ================================
+// MASTER: send commands on video events
+// ================================
+if (role === "master") {
+  const video = document.getElementById("video");
+
+  video.addEventListener("play", () => {
+    sendCmd("play");
+  });
+
+  video.addEventListener("pause", () => {
+    sendCmd("pause");
+  });
+
+  video.addEventListener("seeked", () => {
+    sendCmd("seek", video.currentTime); // send absolute time
+  });
 }
 
-// --- MASTER events based on native video controls ---
-function setupMasterEvents(){
-    // Play / Pause
-    video.addEventListener("play", () => sendCmd("play"));
-    video.addEventListener("pause", () => sendCmd("pause"));
+function sendCmd(type, value=null) {
+  if (role !== "master") return;
 
-    // Seeked
-    video.addEventListener("seeked", () => sendCmd("seek", video.currentTime));
-}
-
-// --- Send command to WS ---
-function sendCmd(type, value=null){
-    if(role !== "master") return;
-    const msg = { type, value, ts: Date.now() };
-    ws.send(JSON.stringify(msg));
-    log("MASTER sent: " + JSON.stringify(msg));
+  const message = { type, value, ts: Date.now() };
+  ws.send(JSON.stringify(message));
+  log("MASTER sent: " + JSON.stringify(message));
 }
 </script>
 </body>
