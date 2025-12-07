@@ -7,7 +7,6 @@
     body { font-family: Arial; padding: 20px; }
     #roleDisplay { font-size: 22px; font-weight: bold; margin-bottom: 15px; }
     #log { white-space: pre-wrap; border: 1px solid #ccc; padding: 10px; height: 250px; overflow-y: auto; }
-    button { margin: 5px; padding: 10px; }
     video { width: 100%; max-width: 720px; margin-bottom: 10px; }
   </style>
 </head>
@@ -15,14 +14,9 @@
   <div id="roleDisplay"></div>
 
   <video id="video" controls>
-    <source src="sample.mp4" type="video/mp4">
+    <source src="https://nexus-038.seur.tb-cdn.st/dld/961333c0-fd54-488a-9fe7-26e3514b8e0e?token=7a4f597b-0a74-44b9-8dd4-5d653f89749a" type="video/mp4">
     Your browser does not support HTML5 video.
   </video>
-
-  <div id="controls" style="display:none;">
-    <button onclick="sendCmd('subtitles_next')">Next Subtitles</button>
-    <button onclick="sendCmd('audio_next')">Next Audio</button>
-  </div>
 
   <h3>Log</h3>
   <div id="log"></div>
@@ -32,10 +26,9 @@ const SERVER_URL = "wss://stremio-sync-server-production.up.railway.app";
 
 const url = new URL(window.location.href);
 const role = url.searchParams.get("role") === "master" ? "master" : "slave";
+
 document.getElementById("roleDisplay").innerText =
   role === "master" ? "ROLE: MASTER" : "ROLE: SLAVE";
-
-const video = document.getElementById("video");
 
 function log(txt) {
   const box = document.getElementById("log");
@@ -43,7 +36,7 @@ function log(txt) {
   box.scrollTop = box.scrollHeight;
 }
 
-// WebSocket
+// --- WebSocket setup ---
 const ws = new WebSocket(SERVER_URL);
 ws.binaryType = "blob";
 
@@ -52,80 +45,42 @@ ws.onopen = () => {
   ws.send(JSON.stringify({ role }));
 };
 
-// ---------------------
-// MASTER: send events
-// ---------------------
+ws.onmessage = async (event) => {
+  let raw = event.data;
+  if (raw instanceof Blob) raw = await raw.text();
+
+  log("RAW MESSAGE: " + raw);
+
+  let msg;
+  try { msg = JSON.parse(raw); } 
+  catch { log("Invalid JSON: " + raw); return; }
+
+  if (role === "master") return;
+
+  const video = document.getElementById("video");
+
+  switch (msg.type) {
+    case "play": video.play().catch(e => log("Play blocked: " + e)); break;
+    case "pause": video.pause(); break;
+    case "seek": if(msg.value) video.currentTime = msg.value; break;
+  }
+
+  log("SLAVE received: " + JSON.stringify(msg));
+};
+
+// --- Master listens to video events ---
 if (role === "master") {
-  document.getElementById("controls").style.display = "block";
+  const video = document.getElementById("video");
 
-  function sendCmd(type, value=null) {
-    const msg = { type, value, ts: Date.now() };
-    ws.send(JSON.stringify(msg));
-    log("MASTER sent: " + JSON.stringify(msg));
+  const sendCmd = (type, value=null) => {
+    const message = { type, value, ts: Date.now() };
+    ws.send(JSON.stringify(message));
+    log("MASTER sent: " + JSON.stringify(message));
   }
 
-  let ignoreNext = false; // prevent loops
-
-  video.addEventListener("play", () => {
-    if (!ignoreNext) sendCmd("play");
-    ignoreNext = false;
-  });
-
-  video.addEventListener("pause", () => {
-    if (!ignoreNext) sendCmd("pause");
-    ignoreNext = false;
-  });
-
-  video.addEventListener("seeked", () => {
-    if (!ignoreNext) sendCmd("seek", video.currentTime);
-    ignoreNext = false;
-  });
-}
-
-// ---------------------
-// SLAVE: receive events
-// ---------------------
-if (role === "slave") {
-  function applyCommand(type, value) {
-    video.ignoreNext = true; // prevent slave triggering events
-    switch(type) {
-      case "play":
-        video.play().catch(e => log("Play blocked: " + e));
-        break;
-      case "pause":
-        video.pause();
-        break;
-      case "seek":
-        if (value !== undefined) video.currentTime = value;
-        break;
-      case "subtitles_next":
-        log("→ NEXT subtitle (placeholder)");
-        break;
-      case "audio_next":
-        log("→ NEXT audio (placeholder)");
-        break;
-    }
-  }
-
-  ws.onmessage = async (event) => {
-    let raw = event.data;
-    if (raw instanceof Blob) raw = await raw.text();
-    let msg;
-    try { msg = JSON.parse(raw); } catch { return; }
-    if (msg.status) return;
-    if (msg.type) applyCommand(msg.type, msg.value);
-    log("SLAVE received: " + JSON.stringify(msg));
-  };
-}
-
-// ---------------------
-// Buttons for subtitles/audio
-// ---------------------
-function sendCmd(type) {
-  if (role !== "master") return;
-  const msg = { type, value:null, ts: Date.now() };
-  ws.send(JSON.stringify(msg));
-  log("MASTER sent: " + JSON.stringify(msg));
+  video.addEventListener("play", () => sendCmd("play"));
+  video.addEventListener("pause", () => sendCmd("pause"));
+  video.addEventListener("seeked", () => sendCmd("seek", video.currentTime));
 }
 </script>
 </body>
